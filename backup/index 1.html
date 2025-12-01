@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Localisation d'adresse</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map { height: 500px; margin-top: 20px; }
+        #search-box { width: 300px; padding: 8px; }
+        #suggestions { border: 1px solid #ccc; max-height: 150px; overflow-y: auto; position: absolute; background: white; z-index: 1000; width: 300px; }
+        .suggestion-item { padding: 5px; cursor: pointer; }
+        .suggestion-item:hover { background-color: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <h2>Rechercher une adresse</h2>
+    <input type="text" id="search-box" placeholder="Tapez une adresse..." autocomplete="off">
+    <div id="suggestions"></div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

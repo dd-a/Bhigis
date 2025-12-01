@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ t.title }}</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #map { height: 500px; margin-top: 20px; }
+        .search-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 30px;
+            margin-bottom: 20px;
+        }
+		.search-form {
+		    display: flex;
+		    flex-wrap: nowrap; /* une seule ligne */
+		    gap: 10px;
+		    justify-content: center;
+		    align-items: center;
+		    max-width: 1300px; /* ou 100% selon la mise en page */
+		    margin: 0 auto;
+		}
+		.search-form input,
+		.search-form select {
+		    padding: 8px;
+		    font-size: 16px;
+		    flex: 1 1 180px;  /* largeurs adaptables */
+		    min-width: 100px;
+		}
+		.search-form button {
+		    padding: 8px 16px;
+		    font-size: 16px;
+		    flex-shrink: 0; /* le bouton ne se réduit pas */
+		}
+        #intro {
+			max-width: 1280px;
+			margin-left: calc((100% - 1300px) / 2 + 20px); /* aligné avec la liste */
+			text-align: justify;
+			padding: 10px;
+        }
+        #extro {
+			max-width: 1280px;
+			margin-left: calc((100% - 1300px) / 2 + 20px); /* aligné avec la liste */
+			text-align: justify;
+			padding: 10px;
+        }
+        #legend {
+            max-width: 800px;
+            margin: 10px auto 40px auto;
+            font-size: 14px;
+        }
+        #results-container {
+            max-width: 800px;
+            margin: 30px auto;
+			margin-top: 0;
+        }
+		#lang-switch {
+		    text-align: right;
+		    margin-bottom: 10px;
+		}
+		#lang-switch a:link,
+		#lang-switch a:visited {
+		    color: #007bff;   /* bleu standard, tu peux changer */
+		    text-decoration: none;
+		}
+		#lang-switch a:hover {
+		    text-decoration: underline; /* petit effet au survol */
+		}
+    </style>
+</head>
+<body>
+	
+    <div class="search-container">
+		<nav id="lang-switch">
+		    <a href="/?lang=fr">FR</a> | 
+		    <a href="/?lang=nl">NL</a>
+		</nav>
+		
+        <h2>{{ t.index_title }}</h2>
+		
+        <div class="search-form">
+            <input type="text" id="street" placeholder={{ t.rue_default }} autocomplete="off">
+            <input type="number" id="number" placeholder={{ t.nr_default }}>
+			<label for="commune">{{ t.choose_commune }}</label>
+			<select id="commune" name="commune">
+			  {% for c in t.communes %}
+			    <option value="{{ c }}">{{ c }}</option>
+			  {% endfor %}
+			</select>
+            <input type="number" id="year" placeholder={{ t.choose_year }}>
+            <button id="search-btn">{{ t.search_btn }}</button>
+            <span id="feedback-message" style="margin-left: 10px; font-weight: bold;"></span>
+        </div>
+		<div style="margin-top:20px; text-align:center;">
+		    <a href="{{ url_for('batch_page') }}">
+		        <button type="button">{{ t.go_batch_btn }}</button>
+		    </a>
+		</div>
+    </div>
+	
+
+    <div id="intro">
+        <p>{{ t.intro_t1 }}</p>
+        <p>{{ t.intro_t2 }}</p>
+        <p>{{ t.intro_t3 }}</p>
+        <p>{{ t.intro_t4 }}</p>
+    </div>
+
+    <div id="results-area" style="display: none;">
+		<div style="display: flex; gap: 20px; align-items: flex-start; margin: 20px auto; max-width: 1300px;">
+		    <div id="results-container" style="width: 400px;">
+		        <h3>{{ t.sstitre_result }}</h3>
+		        <ul id="results-list" style="list-style: none; padding: 0;"></ul>
+		    </div>
+
+		    <div>
+		        <div id="map" style="width: 800px; height: 800px;"></div>
+		        <div id="legend" style="margin-top: 15px;">
+		            <strong>{{ t.sstitre_legend }}</strong>
+		            <div style="display: flex; gap: 20px; margin-top: 5px;">
+		                <div style="display: flex; align-items: center;">
+		                    <div style="width: 16px; height: 16px; background-color: rgb(76,175,80); border: 1px solid #333; border-radius: 50%; margin-right: 5px;"></div>
+		                    {{ t.legend1 }}
+		                </div>
+		                <div style="display: flex; align-items: center;">
+		                    <div style="width: 16px; height: 16px; background-color: rgb(225,200,0); border: 1px solid #333; border-radius: 50%; margin-right: 5px;"></div>
+		                    {{ t.legend2 }}
+		                </div>
+		                <div style="display: flex; align-items: center;">
+		                    <div style="width: 16px; height: 16px; background-color: rgb(255,0,0); border: 1px solid #333; border-radius: 50%; margin-right: 5px;"></div>
+		                    {{ t.legend3 }}
+		                </div>
+		            </div>
+		        </div>
+		    </div>
+		</div>
+    </div>
+
+    <div id="extro">
+		<p>{{ t.legend4 }}</p>
+		<p>{{ t.outro1 }}<a href="https://gag.sciences.ulb.be/" target="_blank" >{{ t.outro2 }}</a>{{ t.outro3 }}<a href="https://bhigis.ulb.be" target="_blank" >bhigis.ulb.be</a></p>
+    <!--    <p>BhiGIS a été développé par une équipe de <a href="https://gag.sciences.ulb.be/" target="_blank" >l'IGEAT</a> à l'Université Libre de Bruxelles. Plus d'informations sur le projet ici: <a href="https://bhigis.ulb.be" target="_blank" >bhigis.ulb.be</a></p> -->
+    </div>
+
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

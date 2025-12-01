@@ -1,0 +1,1124 @@
+
+    API Documentation
+
+  * app <#app>
+  * communes_fr <#communes_fr>
+  * communes_nl <#communes_nl>
+  * translations <#translations>
+  * get_db_connection <#get_db_connection>
+  * index <#index>
+  * autocomplete <#autocomplete>
+  * increment_geocode_counter <#increment_geocode_counter>
+  * geocode <#geocode>
+  * batch_page <#batch_page>
+  * generate_results_zip <#generate_results_zip>
+  * analyze_file <#analyze_file>
+  * batch_geocode <#batch_geocode>
+
+built with pdocpdoc logo <https://pdoc.dev/>
+
+
+  bhigis_backend_app
+
+View Source
+
+  1 <#L-1>from flask import Flask, render_template, request, jsonify, send_file
+  2 <#L-2>from db.db_config import get_ssh_tunnel, get_db_connection
+  3 <#L-3>import psycopg2
+  4 <#L-4>import os
+  5 <#L-5>import io
+  6 <#L-6>import datetime
+  7 <#L-7>import sqlite3
+  8 <#L-8>import geopandas as gpd
+  9 <#L-9>import pandas as pd
+ 10 <#L-10>import zipfile
+ 11 <#L-11>import json
+ 12 <#L-12>from sqlalchemy import create_engine
+ 13 <#L-13>
+ 14 <#L-14>app = Flask(__name__)
+ 15 <#L-15>
+ 16 <#L-16># ============================================================
+ 17 <#L-17># Traductions simples (FR/NL)
+ 18 <#L-18># ============================================================
+ 19 <#L-19>communes_fr = [
+ 20 <#L-20>    "Anderlecht",
+ 21 <#L-21>    "Auderghem",
+ 22 <#L-22>    "Berchem-Sainte-Agathe",
+ 23 <#L-23>    "Bruxelles",
+ 24 <#L-24>    "Etterbeek",
+ 25 <#L-25>    "Evere",
+ 26 <#L-26>    "Forest",
+ 27 <#L-27>    "Ganshoren",
+ 28 <#L-28>    "Haren",
+ 29 <#L-29>    "Ixelles",
+ 30 <#L-30>    "Jette",
+ 31 <#L-31>    "Koekelberg",
+ 32 <#L-32>    "Laeken",
+ 33 <#L-33>    "Molenbeek-Saint-Jean",
+ 34 <#L-34>    "Neder-Over-Heembeek",
+ 35 <#L-35>    "Saint-Gilles",
+ 36 <#L-36>    "Saint-Josse-Ten-Noode",
+ 37 <#L-37>    "Schaerbeek",
+ 38 <#L-38>    "Uccle",
+ 39 <#L-39>    "Watermael-Boitsfort",
+ 40 <#L-40>    "Woluwe-Saint-Lambert",
+ 41 <#L-41>    "Woluwe-Saint-Pierre"
+ 42 <#L-42>]
+ 43 <#L-43>
+ 44 <#L-44>communes_nl = [
+ 45 <#L-45>    "Anderlecht",
+ 46 <#L-46>    "Brussel",
+ 47 <#L-47>    "Elsene",
+ 48 <#L-48>    "Etterbeek",
+ 49 <#L-49>    "Evere",
+ 50 <#L-50>    "Ganshoren",
+ 51 <#L-51>    "Haren",
+ 52 <#L-52>    "Jette",
+ 53 <#L-53>    "Koekelberg",
+ 54 <#L-54>    "Laken",
+ 55 <#L-55>    "Neder-Over-Heembeek",
+ 56 <#L-56>    "Oudergem",
+ 57 <#L-57>    "Schaarbeek",
+ 58 <#L-58>    "Sint-Agatha-Berchem",
+ 59 <#L-59>    "Sint-Gillis",
+ 60 <#L-60>    "Sint-Jans-Molenbeek",
+ 61 <#L-61>    "Sint-Joost-Ten-Node",
+ 62 <#L-62>    "Sint-Lambrechts-Woluwe",
+ 63 <#L-63>    "Sint-Pieters-Woluwe",
+ 64 <#L-64>    "Ukkel",
+ 65 <#L-65>    "Vorst",
+ 66 <#L-66>    "Watermaal-Bosvoorde"
+ 67 <#L-67>]
+ 68 <#L-68>
+ 69 <#L-69>translations = {
+ 70 <#L-70>    "fr": {
+ 71 <#L-71>        "title": "Bienvenue dans BhiGIS",
+ 72 <#L-72>        "intro": "L’outil de géolocalisation historique à Bruxelles",
+ 73 <#L-73>        "simple_search": "⇦ Retour à la recherche simple",
+ 74 <#L-74>        "index_title": "Localisation ponctuelle d'adresses historiques à Bruxelles",
+ 75 <#L-75>        "batch_title": "Bienvenue dans BhiGIS (traitement par lots)",
+ 76 <#L-76>        "file_struct": "Exemple de structure de fichier :",
+ 77 <#L-77>        "tbl_rue": "rue",
+ 78 <#L-78>        "tbl_num": "numero",
+ 79 <#L-79>        "tbl_muni": "commune",
+ 80 <#L-80>        "tbl_ann": "année",
+ 81 <#L-81>        "tbl_other": "commentaire",
+ 82 <#L-82>        "tbl_ex1": "Rue Royale",
+ 83 <#L-83>        "tbl_ex2": "Bruxelles",
+ 84 <#L-84>        "tbl_ex3": "boulangerie",
+ 85 <#L-85>        "tbl_ex4": "Saint-Gilles",
+ 86 <#L-86>        "tbl_ex5": "Peintres-artistes",
+ 87 <#L-87>        "tbl_ex6": "Couture",
+ 88 <#L-88>        "rue_default": "Rue...",
+ 89 <#L-89>        "nr_default": "Numéro...",
+ 90 <#L-90>        "communes": sorted(communes_fr),   # liste FR triée
+ 91 <#L-91>        "choose_commune": "(Choisissez une commune)",
+ 92 <#L-92>        "choose_year": "Année (ex: 1905)",
+ 93 <#L-93>        "search_btn": "Rechercher",
+ 94 <#L-94>        "best_result": "Meilleur",
+ 95 <#L-95>        "copy_coord": "Copier les coordonnées",
+ 96 <#L-96>        "unknown_address": "(adresse inconnue)",
+ 97 <#L-97>        "epoch_label": "Époque",
+ 98 <#L-98>        "similarity_lb": "Similarité du nom",
+ 99 <#L-99>        "similarity_na": "Similarité non disponible",
+100 <#L-100>        "dist_to_commune": "Éloignement à la commune recherchée",
+101 <#L-101>        "file_error": "Erreur lecture fichier :",
+102 <#L-102>        "processing_error": "Erreur lors du traitement batch :",
+103 <#L-103>        "success_msg": "Les données ont bien été traitées.",
+104 <#L-104>        "go_batch_btn": "📂 Ou alors aller vers la localisation par lot -->",
+105 <#L-105>        "intro_batch": "Vous pouvez charger un fichier <strong>Excel (.xlsx)</strong> ou <strong>LibreOffice (.ods)</strong> ou un fichier <strong>CSV UTF-8</strong> avec séparateur <code>';'</code>. <br><br>Les adresses peuvent indifféremment être libellées en français ou en néerlandais. La structure attendue est : un identifiant unique, le nom de rue, le numéro, la commune, l’année, et un champ libre (commentaire). Les champs 'id', 'nom de rue', 'commune' doivent impérativement contenir quelque chose,	le champ 'année' est vivement conseillé, le numéro ne sera probablement pas utilisé dans les époques très anciennes (< 1850). Les noms des communes doivent être standard en français ou en néerlandais (les codes postaux sont également acceptés), et correspondre à l'époque recherchée.",
+106 <#L-106>        "intro_t1": "L'application 'BhiGIS' (Brussels History Geographical Information System) permet de localiser des adresses à Bruxelles en fonction de données historiques, depuis la fin du 18ème siècle (1777) jusqu'à aujourd'hui.",
+107 <#L-107>        "intro_t2": "Comme les rues peuvent aussi bien avoir conservé leur nom et leur tracé au fil du temps, qu'avoir complètement changé, ou que certains noms ont pu être utilisés à de multiples reprises dans des parties différentes de Bruxelles, plusieurs résultats sont généralement proposés (y compris dans d'autres communes) sur base d'une ressemblance de nom et d'une relative proximité temporelle et spatiale. Ceux-ci sont classés par ordre de pertinence estimée, le meilleur étant en tête.",
+108 <#L-108>        "intro_t3": "Les pastilles colorées donnent une idée de la pertinence : vert pour les plus proches, rouge pour les moins bonnes correspondances, que ce soit dû à une inadéquation des noms ou de l'époque.",
+109 <#L-109>        "intro_t4": "Enfin, pour les adresses anciennes les positions exactes des n° dans la rue ne sont généralement pas connues, mais si possible nous calculons une position entre les n° minimum et maximum du segment de rue trouvé, sinon nous plaçons le point au milieu de la rue.",
+110 <#L-110>        "step1": "1. Sélectionnez votre fichier :",
+111 <#L-111>        "step2": "2. Téléchargez vos résultats :",
+112 <#L-112>        "batch_expl1": "Le fichier de résultats contient 3 tables :",
+113 <#L-113>        "batch_expl2": "les adresses géocodées,",
+114 <#L-114>        "batch_expl3": "les adresses non trouvées,",
+115 <#L-115>        "batch_expl4": "des suggestions de correction.",
+116 <#L-116>        "sstitre_result": "Résultats",
+117 <#L-117>        "sstitre_legend": "Légende des couleurs",
+118 <#L-118>        "legend1": "Meilleure correspondance",
+119 <#L-119>        "legend2": "Moyenne",
+120 <#L-120>        "legend3": "Correspondance faible",
+121 <#L-121>        "legend4": "Les coordonnées des points sont disponibles en cliquant sur les globes.",
+122 <#L-122>        "outro1": "BhiGIS a été développé par une équipe de ",
+123 <#L-123>        "outro2": "l'IGEAT",
+124 <#L-124>        "outro3": " à l'Université Libre de Bruxelles. Plus d'informations sur le projet ici: ",
+125 <#L-125>        "download_btn": "3. Télécharger le fichier ZIP",
+126 <#L-126>        "file_help": "Vous pouvez charger un fichier Excel (.xlsx) ou LibreOffice (.ods) ou CSV UTF-8 ; séparateur ;",
+127 <#L-127>        "error1": "Aucun fichier fourni",
+128 <#L-128>        "error2": "Aucun fichier envoyé",
+129 <#L-129>        "error3": "Aucun fichier fourni",
+130 <#L-130>        "error4": "Format non supporté (xlsx, csv ou ods attendu)",
+131 <#L-131>        "error5": "Erreur lecture fichier: "
+132 <#L-132>    },
+133 <#L-133>    "nl": {
+134 <#L-134>        "title": "Welkom bij BhiGIS",
+135 <#L-135>        "intro": "Het historische geolokalisatie-instrument in Brussel",
+136 <#L-136>        "simple_search": "⇦ Terug naar eenvoudige zoekopdracht",
+137 <#L-137>        "index_title": "Puntlocatie van historische adressen in Brussel",
+138 <#L-138>        "batch_title": "Welkom bij BhiGIS (batchverwerking)",
+139 <#L-139>        "file_struct": "Voorbeeld van een bestandsstructuur :",
+140 <#L-140>        "tbl_rue": "straat",
+141 <#L-141>        "tbl_num": "nummer",
+142 <#L-142>        "tbl_muni": "gemeente",
+143 <#L-143>        "tbl_ann": "jaar",
+144 <#L-144>        "tbl_other": "commentaar",
+145 <#L-145>        "tbl_ex1": "Koningsstraat",
+146 <#L-146>        "tbl_ex2": "Brussel",
+147 <#L-147>        "tbl_ex3": "bakkerij",
+148 <#L-148>        "tbl_ex4": "Sint-Gillis",
+149 <#L-149>        "tbl_ex5": "Schilders-kunstenaars",
+150 <#L-150>        "tbl_ex6": "Naaiwerk",
+151 <#L-151>        "rue_default": "Straat...",
+152 <#L-152>        "nr_default": "Nummer...",
+153 <#L-153>        "communes": sorted(communes_nl),   # liste NL triée
+154 <#L-154>        "choose_commune": "(Kies een gemeente)",
+155 <#L-155>        "choose_year": "Jaar (ex: 1905)",
+156 <#L-156>        "search_btn": "Zoeken",
+157 <#L-157>        "best_result": "Best",
+158 <#L-158>        "copy_coord": "Contactgegevens kopiëren",
+159 <#L-159>        "unknown_address": "(onbekend adres)",
+160 <#L-160>        "epoch_label": "Periode",
+161 <#L-161>        "similarity_lb": "Overeenkomst in naam",
+162 <#L-162>        "similarity_na": "Overeenkomst niet beschikbaar",
+163 <#L-163>        "dist_to_commune": "Verwijdering naar de gewenste gemeente",
+164 <#L-164>        "copy_tooltip": "Contactgegevens kopiëren",
+165 <#L-165>        "file_error": "Fout bij het lezen van het bestand :",
+166 <#L-166>        "processing_error": "Fout tijdens batchverwerking :",
+167 <#L-167>        "success_msg": "De gegevens zijn correct verwerkt.",
+168 <#L-168>        "go_batch_btn": "📂 Of ga naar batch-lokalisatie -->",
+169 <#L-169>        "intro_batch": "U kunt een <strong>Excel (.xlsx)</strong> of <strong>LibreOffice (.ods)</strong> of een <strong>CSV UTF-8</strong> bestand met scheidingsteken <code>‘;’</code> uploaden. <br><br>De adressen mogen zowel in het Frans als in het Nederlands worden vermeld. De verwachte structuur is: een unieke identificatiecode, de straatnaam, het huisnummer, de gemeente, het jaar en een vrij veld (opmerking). De velden ‘id’, ‘straatnaam’ en ‘gemeente’ moeten verplicht iets bevatten. Het veld ‘jaar’ wordt sterk aanbevolen. Het huisnummer zal waarschijnlijk niet worden gebruikt voor zeer oude periodes (< 1850).	De namen van de gemeenten moeten standaard zijn in het Frans of Nederlands (postcodes worden ook geaccepteerd) en overeenkomen met de gezochte periode.",
+170 <#L-170>        "intro_t1": "Met de applicatie ‘BhiGIS’ (Brussels History Geographical Information System) kunnen adressen in Brussel worden gelokaliseerd op basis van historische gegevens, vanaf het einde van de 18e eeuw (1777) tot vandaag.",
+171 <#L-171>        "intro_t2": "Aangezien straten in de loop der tijd zowel hun naam en tracé kunnen hebben behouden als volledig kunnen zijn veranderd, of bepaalde namen meerdere keren in verschillende delen van Brussel kunnen zijn gebruikt, worden er meestal meerdere resultaten voorgesteld (ook in andere gemeenten) op basis van een gelijkenis in naam en een relatieve tijds- en ruimtelijke nabijheid. Deze worden gerangschikt op basis van geschatte relevantie, met de beste bovenaan.",
+172 <#L-172>        "intro_t3": "De gekleurde stippen geven een indicatie van de relevantie: groen voor de meest relevante resultaten, rood voor de minst relevante resultaten, of dit nu te wijten is aan een mismatch tussen de namen of de periode.",
+173 <#L-173>        "intro_t4": "Ten slotte zijn voor oude adressen de exacte posities van de huisnummers in de straat meestal niet bekend, maar indien mogelijk berekenen we een positie tussen het minimum- en maximumhuisnummer van het gevonden straatsegment, anders plaatsen we het punt in het midden van de straat.",
+174 <#L-174>        "step1": "1. Selecteer uw bestand:",
+175 <#L-175>        "step2": "2. Download uw resultaten:",
+176 <#L-176>        "batch_expl1": "Het resultatenbestand bevat 3 tabellen :",
+177 <#L-177>        "batch_expl2": "geocodeerde adressen,",
+178 <#L-178>        "batch_expl3": "de niet-gevonden adressen,",
+179 <#L-179>        "batch_expl4": "correctiesuggesties.",
+180 <#L-180>        "sstitre_result": "Resultaten",
+181 <#L-181>        "sstitre_legend": "Legenda kleuren",
+182 <#L-182>        "legend1": "Beste overeenkomst",
+183 <#L-183>        "legend2": "Gemiddeld",
+184 <#L-184>        "legend3": "Slechte overeenkomst",
+185 <#L-185>        "legend4": "De coördinaten van de punten zijn beschikbaar door op de globes te klikken.",
+186 <#L-186>        "outro1": "BhiGIS is ontwikkeld door een team van ",
+187 <#L-187>        "outro2": "IGEAT",
+188 <#L-188>        "outro3": " aan de Vrije Universiteit Brussel. Meer informatie over het project vindt u hier: ",
+189 <#L-189>        "download_btn": "3. Download het ZIP-bestand",
+190 <#L-190>        "file_help": "U kunt een Excel-bestand (.xlsx) of LibreOffice (.ods) of CSV UTF-8 ; scheidingsteken ; uploaden",
+191 <#L-191>        "error1": "Geen bestand opgegeven",
+192 <#L-192>        "error2": "Geen bestand geselecteerd",
+193 <#L-193>        "error3": "Geen bestand opgegeven"
+194 <#L-194>    }
+195 <#L-195>}
+196 <#L-196>
+197 <#L-197>
+198 <#L-198># ============================================================
+199 <#L-199># Connexion PostgreSQL
+200 <#L-200># ============================================================
+201 <#L-201>def get_db_connection(tunnel):
+202 <#L-202>    return psycopg2.connect(
+203 <#L-203>        dbname=os.getenv("DB_NAME"),
+204 <#L-204>        user=os.getenv("DB_USER"),
+205 <#L-205>        password=os.getenv("DB_PASSWORD"),
+206 <#L-206>        host="127.0.0.1",
+207 <#L-207>        port=tunnel.local_bind_port
+208 <#L-208>    )
+209 <#L-209>
+210 <#L-210># ============================================================
+211 <#L-211># Page d’accueil
+212 <#L-212># ============================================================
+213 <#L-213>@app.route("/")
+214 <#L-214>def index():
+215 <#L-215>    lang = request.args.get("lang", "fr")
+216 <#L-216>    if lang not in translations:
+217 <#L-217>        lang = "fr"
+218 <#L-218>    return render_template("index.html", t=translations[lang], lang=lang)
+219 <#L-219>
+220 <#L-220># ============================================================
+221 <#L-221># Autocomplétion (optionnel)
+222 <#L-222># ============================================================
+223 <#L-223>@app.route("/autocomplete")
+224 <#L-224>def autocomplete():
+225 <#L-225>    query = request.args.get("q", "")
+226 <#L-226>    results = []
+227 <#L-227>
+228 <#L-228>    if query:
+229 <#L-229>        conn = get_db_connection()
+230 <#L-230>        cur = conn.cursor()
+231 <#L-231>        cur.execute(
+232 <#L-232>            "SELECT address FROM couches.adresses WHERE address ILIKE %s LIMIT 10",
+233 <#L-233>            (f"%{query}%",),
+234 <#L-234>        )
+235 <#L-235>        results = [row[0] for row in cur.fetchall()]
+236 <#L-236>        cur.close()
+237 <#L-237>        conn.close()
+238 <#L-238>
+239 <#L-239>    return jsonify(results)
+240 <#L-240>
+241 <#L-241># ============================================================
+242 <#L-242># Compteur d’appels à /geocode
+243 <#L-243># ============================================================
+244 <#L-244>def increment_geocode_counter():
+245 <#L-245>    count_file = "geocode_counter.txt"      ### à remplacer par /opt/bhigis/geocode_counter.txt !!!
+246 <#L-246>    count = 0
+247 <#L-247>
+248 <#L-248>    if os.path.exists(count_file):
+249 <#L-249>        with open(count_file, "r") as f:
+250 <#L-250>            try:
+251 <#L-251>                count = int(f.read())
+252 <#L-252>            except ValueError:
+253 <#L-253>                count = 0
+254 <#L-254>
+255 <#L-255>    count += 1
+256 <#L-256>    with open(count_file, "w") as f:
+257 <#L-257>        f.write(str(count))
+258 <#L-258>
+259 <#L-259># ============================================================
+260 <#L-260># Géocodage simple (requête unique)
+261 <#L-261># ============================================================
+262 <#L-262>@app.route("/geocode")
+263 <#L-263>def geocode():
+264 <#L-264>    address = request.args.get("address", "")
+265 <#L-265>    numero = request.args.get("numero", None)
+266 <#L-266>    annee = request.args.get("annee", None)
+267 <#L-267>    commune = request.args.get("commune", "").strip()
+268 <#L-268>    results = []
+269 <#L-269>
+270 <#L-270>    if address:
+271 <#L-271>        increment_geocode_counter()
+272 <#L-272>        with get_ssh_tunnel() as tunnel:
+273 <#L-273>            tunnel.start()
+274 <#L-274>            conn = get_db_connection(tunnel)
+275 <#L-275>            conn.autocommit = True
+276 <#L-276>            cur = conn.cursor()
+277 <#L-277>
+278 <#L-278>            try:
+279 <#L-279>                numero_int = int(numero) if numero else None
+280 <#L-280>            except ValueError:
+281 <#L-281>                numero_int = None
+282 <#L-282>
+283 <#L-283>            try:
+284 <#L-284>                annee_int = int(annee) if annee else None
+285 <#L-285>            except ValueError:
+286 <#L-286>                annee_int = None
+287 <#L-287>
+288 <#L-288>            # 1. Vider la table
+289 <#L-289>            cur.execute("TRUNCATE bhigis_webuser.new_geo_loc")
+290 <#L-290>
+291 <#L-291>            # 2. Insérer les données utilisateur
+292 <#L-292>            cur.execute(
+293 <#L-293>                """
+294 <#L-294>                INSERT INTO bhigis_webuser.new_geo_loc (nom_rue, numero, annee, commune)
+295 <#L-295>                VALUES (%s, %s, %s, %s)
+296 <#L-296>                """,
+297 <#L-297>                (address, numero_int, annee_int, commune),
+298 <#L-298>            )
+299 <#L-299>
+300 <#L-300>            # 3. Appeler la fonction de traitement
+301 <#L-301>            cur.execute("SELECT data.run_webuser()")
+302 <#L-302>
+303 <#L-303>            # 4. Lire les résultats
+304 <#L-304>            cur.execute(
+305 <#L-305>                """
+306 <#L-306>                SELECT DISTINCT
+307 <#L-307>                    ST_Y(ST_Transform(ST_Centroid(geom), 4326)) AS lat,
+308 <#L-308>                    ST_X(ST_Transform(ST_Centroid(geom), 4326)) AS lon,
+309 <#L-309>                    found_street AS rue,
+310 <#L-310>                    commune_loc AS commune,
+311 <#L-311>                    annee_ref AS epoque,
+312 <#L-312>                    ROUND(simila::numeric, 2)::numeric simila,
+313 <#L-313>                    ROUND((dist_muni/1000)::numeric, 2) dist_muni,
+314 <#L-314>                    best_answer,
+315 <#L-315>                    main_name,
+316 <#L-316>                    CASE WHEN %s ILIKE commune THEN 1 ELSE 0 END AS commune_match,
+317 <#L-317>                    simsignif,
+318 <#L-318>                    simsignif+simila sim
+319 <#L-319>                FROM bhigis_webuser.adress_collect_pt
+320 <#L-320>                WHERE simila > 0.35 OR simsignif > 0.5
+321 <#L-321>                ORDER BY best_answer ASC, sim DESC, commune_match, dist_muni
+322 <#L-322>                LIMIT 10
+323 <#L-323>                """,
+324 <#L-324>                (commune,),
+325 <#L-325>            )
+326 <#L-326>
+327 <#L-327>            rows = cur.fetchall()
+328 <#L-328>            for row in rows:
+329 <#L-329>                results.append(
+330 <#L-330>                    {
+331 <#L-331>                        "lat": row[0],
+332 <#L-332>                        "lon": row[1],
+333 <#L-333>                        "adresse": row[2],
+334 <#L-334>                        "commune": row[3],
+335 <#L-335>                        "époque": row[4],
+336 <#L-336>                        "simila": row[5],
+337 <#L-337>                        "dist_muni": row[6],
+338 <#L-338>                        "best_answer": row[7],
+339 <#L-339>                        "main_name": row[8],
+340 <#L-340>                        "commune_match": row[9],
+341 <#L-341>                    }
+342 <#L-342>                )
+343 <#L-343>
+344 <#L-344>            cur.close()
+345 <#L-345>            conn.close()
+346 <#L-346>
+347 <#L-347>    return jsonify(results)
+348 <#L-348>
+349 <#L-349>
+350 <#L-350># ============================================================
+351 <#L-351># Page pour traitement batch
+352 <#L-352># ============================================================
+353 <#L-353>@app.route("/batch")
+354 <#L-354>def batch_page():
+355 <#L-355>    lang = request.args.get("lang", "fr")
+356 <#L-356>    if lang not in translations:
+357 <#L-357>        lang = "fr"
+358 <#L-358>    return render_template("batch.html", t=translations[lang], lang=lang)
+359 <#L-359>
+360 <#L-360>
+361 <#L-361># ============================================================
+362 <#L-362># Génération des résultats batch
+363 <#L-363># ============================================================
+364 <#L-364>def generate_results_zip(base_filename, gdf1, df2, df3,
+365 <#L-365>                         style1="style_bhigis.qml", style2="style_non_trouvés.qml"):
+366 <#L-366>    # Générer un timestamp (ex: 20250916_114532)
+367 <#L-367>    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+368 <#L-368>
+369 <#L-369>    # Nom unique du GeoPackage
+370 <#L-370>    gpkg_filename = f"{base_filename}_{timestamp}_bhigis.gpkg"
+371 <#L-371>
+372 <#L-372>    # Couche principale
+373 <#L-373>    gdf1.to_file(gpkg_filename, driver="GPKG", layer="resultats")
+374 <#L-374>
+375 <#L-375>    # Tables secondaires
+376 <#L-376>    conn = sqlite3.connect(gpkg_filename)
+377 <#L-377>    df2.to_sql("données_non_trouvées", conn, if_exists="replace", index=False)
+378 <#L-378>    df3.to_sql("suggestions", conn, if_exists="replace", index=False)
+379 <#L-379>    conn.close()
+380 <#L-380>
+381 <#L-381>    # Nom unique de l’archive ZIP
+382 <#L-382>    zip_filename = f"{base_filename}_{timestamp}_bhigis.zip"
+383 <#L-383>    with zipfile.ZipFile(zip_filename, "w") as zf:
+384 <#L-384>        zf.write(gpkg_filename, os.path.basename(gpkg_filename))
+385 <#L-385>        if os.path.exists(style1):
+386 <#L-386>            zf.write(style1, os.path.basename(style1))
+387 <#L-387>        if os.path.exists(style2):
+388 <#L-388>            zf.write(style2, os.path.basename(style2))
+389 <#L-389>
+390 <#L-390>    return zip_filename
+391 <#L-391>
+392 <#L-392>
+393 <#L-393># ============================================================
+394 <#L-394># Analyse d'un fichier batch pour extraire les colonnes
+395 <#L-395># ============================================================
+396 <#L-396>@app.route("/analyze_file", methods=["POST"])
+397 <#L-397>def analyze_file():
+398 <#L-398>    """
+399 <#L-399>    Analyse le fichier uploadé :
+400 <#L-400>    - Lit les colonnes du fichier (csv ou xlsx)
+401 <#L-401>    - Récupère les colonnes attendues dans la table PostgreSQL
+402 <#L-402>    - Retourne les deux listes en JSON
+403 <#L-403>    """
+404 <#L-404>    file = request.files.get("file")
+405 <#L-405>    if not file:
+406 <#L-406>        return jsonify({"error": {{ t.error1 }}}), 400
+407 <#L-407>
+408 <#L-408>    filename = file.filename
+409 <#L-409>    base_filename, ext = os.path.splitext(filename)
+410 <#L-410>
+411 <#L-411>    # Lire fichier
+412 <#L-412>    try:
+413 <#L-413>        if ext.lower() == ".xlsx":
+414 <#L-414>            df = pd.read_excel(file)
+415 <#L-415>        elif ext.lower() == ".csv":
+416 <#L-416>            df = pd.read_csv(file, sep=";")
+417 <#L-417>        elif ext.lower() == ".ods":
+418 <#L-418>            df = pd.read_excel(file, engine="odf")
+419 <#L-419>        else:
+420 <#L-420>            return jsonify({"error": {{ t.error4 }}}), 400
+421 <#L-421>    except Exception as e:
+422 <#L-422>        return jsonify({"error": t[lang]["error5"] + {str(e)}}), 500
+423 <#L-423>
+424 <#L-424>    file_columns = df.columns.astype(str).tolist()
+425 <#L-425>
+426 <#L-426>    # Colonnes de la table cible PostgreSQL
+427 <#L-427>    try:
+428 <#L-428>        with get_ssh_tunnel() as tunnel:
+429 <#L-429>            tunnel.start()
+430 <#L-430>            conn = get_db_connection(tunnel)
+431 <#L-431>            cur = conn.cursor()
+432 <#L-432>            cur.execute("""
+433 <#L-433>                SELECT column_name
+434 <#L-434>                FROM information_schema.columns
+435 <#L-435>                WHERE table_schema = 'bhigis_webuser'
+436 <#L-436>                AND table_name = 'new_geo_loc'
+437 <#L-437>                ORDER BY ordinal_position;
+438 <#L-438>            """)
+439 <#L-439>            db_columns = [row[0] for row in cur.fetchall()]
+440 <#L-440>            cur.close()
+441 <#L-441>            conn.close()
+442 <#L-442>    except Exception as e:
+443 <#L-443>        return jsonify({"error": f"Erreur lecture colonnes DB: {str(e)}"}), 500
+444 <#L-444>
+445 <#L-445>    return jsonify({
+446 <#L-446>        "file_columns": file_columns,
+447 <#L-447>        "db_columns": db_columns
+448 <#L-448>    })
+449 <#L-449>
+450 <#L-450>
+451 <#L-451># ============================================================
+452 <#L-452># Page batch + traitement
+453 <#L-453># ============================================================
+454 <#L-454>@app.route("/batch_geocode", methods=["POST"])
+455 <#L-455>def batch_geocode():
+456 <#L-456>    file = request.files.get("file")
+457 <#L-457>    mapping_json = request.form.get("mapping")
+458 <#L-458>
+459 <#L-459>    if not file:
+460 <#L-460>        return {{ t.error2 }}, 400
+461 <#L-461>    if not mapping_json:
+462 <#L-462>        return {{ t.error3 }}, 400
+463 <#L-463>
+464 <#L-464>    try:
+465 <#L-465>        mapping = json.loads(mapping_json)
+466 <#L-466>    except Exception as e:
+467 <#L-467>        return f"Erreur de parsing du mapping : {e}", 400
+468 <#L-468>
+469 <#L-469>    filename = file.filename
+470 <#L-470>    base_filename, ext = os.path.splitext(filename)
+471 <#L-471>
+472 <#L-472>    # Lecture du fichier
+473 <#L-473>    # Lecture du fichier
+474 <#L-474>    if ext.lower() == ".xlsx":
+475 <#L-475>        df_input = pd.read_excel(file)
+476 <#L-476>    elif ext.lower() == ".csv":
+477 <#L-477>        df_input = pd.read_csv(file, sep=";")
+478 <#L-478>    elif ext.lower() == ".ods":
+479 <#L-479>        df_input = pd.read_excel(file, engine="odf")
+480 <#L-480>    else:
+481 <#L-481>        return "Format non supporté (xlsx, csv ou ods uniquement)", 400
+482 <#L-482>
+483 <#L-483>    # Vérifie que les colonnes demandées existent dans le fichier
+484 <#L-484>    missing_cols = [col for col in mapping.values() if col not in df_input.columns]
+485 <#L-485>    if missing_cols:
+486 <#L-486>        return f"Colonnes manquantes dans le fichier : {missing_cols}", 400
+487 <#L-487>
+488 <#L-488>    # Renommer les colonnes selon le mapping
+489 <#L-489>    df_input = df_input.rename(columns={v: k for k, v in mapping.items()})
+490 <#L-490>
+491 <#L-491>    try:
+492 <#L-492>        with get_ssh_tunnel() as tunnel:
+493 <#L-493>            tunnel.start()
+494 <#L-494>            conn = get_db_connection(tunnel)
+495 <#L-495>            conn.autocommit = True
+496 <#L-496>            cur = conn.cursor()
+497 <#L-497>
+498 <#L-498>            # 1. Créer un schéma de travail
+499 <#L-499>            cur.execute("SELECT data.prepar_schema()")
+500 <#L-500>            schema_name = cur.fetchone()[0]
+501 <#L-501>            table_name = "new_geo_loc"
+502 <#L-502>
+503 <#L-503>            # 2. Récupérer les colonnes attendues dans la table cible
+504 <#L-504>            cur.execute("""
+505 <#L-505>                SELECT column_name
+506 <#L-506>                FROM information_schema.columns
+507 <#L-507>                WHERE table_schema = %s AND table_name = %s
+508 <#L-508>                ORDER BY ordinal_position
+509 <#L-509>            """, (schema_name, table_name))
+510 <#L-510>            table_columns = [row[0] for row in cur.fetchall()]
+511 <#L-511>
+512 <#L-512>            # 3. Charger les données via COPY
+513 <#L-513>            csv_buffer = io.StringIO()
+514 <#L-514>            df_input.to_csv(csv_buffer, index=False, header=False, sep="\t")
+515 <#L-515>            csv_buffer.seek(0)
+516 <#L-516>
+517 <#L-517>            copy_sql = f"""
+518 <#L-518>                COPY {schema_name}.{table_name} ({', '.join(table_columns)})
+519 <#L-519>                FROM STDIN WITH (FORMAT csv, DELIMITER E'\\t')
+520 <#L-520>            """
+521 <#L-521>            cur.copy_expert(copy_sql, csv_buffer)
+522 <#L-522>
+523 <#L-523>            # 4. Exécuter les fonctions de traitement avec le schema_name
+524 <#L-524>            functions_to_execute = [
+525 <#L-525>                f"SELECT data.find_street('{schema_name}')",
+526 <#L-526>                f"SELECT data.find_nb('{schema_name}')",
+527 <#L-527>                f"SELECT data.find_errors('{schema_name}')"
+528 <#L-528>            ]
+529 <#L-529>            for query in functions_to_execute:
+530 <#L-530>                cur.execute(query)
+531 <#L-531>
+532 <#L-532>            # 5. Lire les résultats dans ce schéma
+533 <#L-533>            engine = create_engine(
+534 <#L-534>                f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+535 <#L-535>                f"@127.0.0.1:{tunnel.local_bind_port}/{os.getenv('DB_NAME')}"
+536 <#L-536>            )
+537 <#L-537>            gdf1 = gpd.read_postgis(f"SELECT * FROM {schema_name}.adress_geoloc_pt", engine, geom_col="geom")
+538 <#L-538>            df2 = pd.read_sql(f"SELECT * FROM {schema_name}.missing", engine)
+539 <#L-539>            df3 = pd.read_sql(f"SELECT * FROM {schema_name}.online_suggest", engine)
+540 <#L-540>
+541 <#L-541>            # 6. Générer le ZIP
+542 <#L-542>            zip_path = generate_results_zip(base_filename, gdf1, df2, df3)
+543 <#L-543>
+544 <#L-544>            # 7. Nettoyer : supprimer le schéma temporaire
+545 <#L-545>            cur.execute(f"DROP SCHEMA {schema_name} CASCADE")
+546 <#L-546>
+547 <#L-547>            cur.close()
+548 <#L-548>            conn.close()
+549 <#L-549>
+550 <#L-550>        return send_file(zip_path, as_attachment=True, download_name=os.path.basename(zip_path))
+551 <#L-551>
+552 <#L-552>    except Exception as e:
+553 <#L-553>        return f"Erreur lors du traitement batch : {str(e)}", 500
+554 <#L-554>
+555 <#L-555>
+556 <#L-556># ============================================================
+557 <#L-557># Lancement de l’app
+558 <#L-558># ============================================================
+559 <#L-559>if __name__ == "__main__":
+560 <#L-560>    app.run(debug=True)
+
+app = <Flask 'bhigis_backend_app'>
+<#app>
+
+communes_fr = ['Anderlecht', 'Auderghem', 'Berchem-Sainte-Agathe',
+'Bruxelles', 'Etterbeek', 'Evere', 'Forest', 'Ganshoren', 'Haren',
+'Ixelles', 'Jette', 'Koekelberg', 'Laeken', 'Molenbeek-Saint-Jean',
+'Neder-Over-Heembeek', 'Saint-Gilles', 'Saint-Josse-Ten-Noode',
+'Schaerbeek', 'Uccle', 'Watermael-Boitsfort', 'Woluwe-Saint-Lambert',
+'Woluwe-Saint-Pierre']
+<#communes_fr>
+
+communes_nl = ['Anderlecht', 'Brussel', 'Elsene', 'Etterbeek', 'Evere',
+'Ganshoren', 'Haren', 'Jette', 'Koekelberg', 'Laken', 'Neder-Over-
+Heembeek', 'Oudergem', 'Schaarbeek', 'Sint-Agatha-Berchem', 'Sint-
+Gillis', 'Sint-Jans-Molenbeek', 'Sint-Joost-Ten-Node', 'Sint-Lambrechts-
+Woluwe', 'Sint-Pieters-Woluwe', 'Ukkel', 'Vorst', 'Watermaal-Bosvoorde']
+<#communes_nl>
+
+translations = {'fr': {'title': 'Bienvenue dans BhiGIS', 'intro':
+'L’outil de géolocalisation historique à Bruxelles', 'simple_search': '⇦
+Retour à la recherche simple', 'index_title': "Localisation ponctuelle
+d'adresses historiques à Bruxelles", 'batch_title': 'Bienvenue dans
+BhiGIS (traitement par lots)', 'file_struct': 'Exemple de structure de
+fichier :', 'tbl_rue': 'rue', 'tbl_num': 'numero', 'tbl_muni':
+'commune', 'tbl_ann': 'année', 'tbl_other': 'commentaire', 'tbl_ex1':
+'Rue Royale', 'tbl_ex2': 'Bruxelles', 'tbl_ex3': 'boulangerie',
+'tbl_ex4': 'Saint-Gilles', 'tbl_ex5': 'Peintres-artistes', 'tbl_ex6':
+'Couture', 'rue_default': 'Rue...', 'nr_default': 'Numéro...',
+'communes': ['Anderlecht', 'Auderghem', 'Berchem-Sainte-Agathe',
+'Bruxelles', 'Etterbeek', 'Evere', 'Forest', 'Ganshoren', 'Haren',
+'Ixelles', 'Jette', 'Koekelberg', 'Laeken', 'Molenbeek-Saint-Jean',
+'Neder-Over-Heembeek', 'Saint-Gilles', 'Saint-Josse-Ten-Noode',
+'Schaerbeek', 'Uccle', 'Watermael-Boitsfort', 'Woluwe-Saint-Lambert',
+'Woluwe-Saint-Pierre'], 'choose_commune': '(Choisissez une commune)',
+'choose_year': 'Année (ex: 1905)', 'search_btn': 'Rechercher',
+'best_result': 'Meilleur', 'copy_coord': 'Copier les coordonnées',
+'unknown_address': '(adresse inconnue)', 'epoch_label': 'Époque',
+'similarity_lb': 'Similarité du nom', 'similarity_na': 'Similarité non
+disponible', 'dist_to_commune': 'Éloignement à la commune recherchée',
+'file_error': 'Erreur lecture fichier :', 'processing_error': 'Erreur
+lors du traitement batch :', 'success_msg': 'Les données ont bien été
+traitées.', 'go_batch_btn': '📂 Ou alors aller vers la localisation par
+lot -->', 'intro_batch': "Vous pouvez charger un fichier <strong>Excel
+(.xlsx)</strong> ou <strong>LibreOffice (.ods)</strong> ou un fichier
+<strong>CSV UTF-8</strong> avec séparateur <code>';'</code>. <br><br>Les
+adresses peuvent indifféremment être libellées en français ou en
+néerlandais. La structure attendue est : un identifiant unique, le nom
+de rue, le numéro, la commune, l’année, et un champ libre (commentaire).
+Les champs 'id', 'nom de rue', 'commune' doivent impérativement contenir
+quelque chose,\tle champ 'année' est vivement conseillé, le numéro ne
+sera probablement pas utilisé dans les époques très anciennes (< 1850).
+Les noms des communes doivent être standard en français ou en
+néerlandais (les codes postaux sont également acceptés), et correspondre
+à l'époque recherchée.", 'intro_t1': "L'application 'BhiGIS' (Brussels
+History Geographical Information System) permet de localiser des
+adresses à Bruxelles en fonction de données historiques, depuis la fin
+du 18ème siècle (1777) jusqu'à aujourd'hui.", 'intro_t2': "Comme les
+rues peuvent aussi bien avoir conservé leur nom et leur tracé au fil du
+temps, qu'avoir complètement changé, ou que certains noms ont pu être
+utilisés à de multiples reprises dans des parties différentes de
+Bruxelles, plusieurs résultats sont généralement proposés (y compris
+dans d'autres communes) sur base d'une ressemblance de nom et d'une
+relative proximité temporelle et spatiale. Ceux-ci sont classés par
+ordre de pertinence estimée, le meilleur étant en tête.", 'intro_t3':
+"Les pastilles colorées donnent une idée de la pertinence : vert pour
+les plus proches, rouge pour les moins bonnes correspondances, que ce
+soit dû à une inadéquation des noms ou de l'époque.", 'intro_t4':
+'Enfin, pour les adresses anciennes les positions exactes des n° dans la
+rue ne sont généralement pas connues, mais si possible nous calculons
+une position entre les n° minimum et maximum du segment de rue trouvé,
+sinon nous plaçons le point au milieu de la rue.', 'step1': '1.
+Sélectionnez votre fichier :', 'step2': '2. Téléchargez vos
+résultats :', 'batch_expl1': 'Le fichier de résultats contient 3
+tables :', 'batch_expl2': 'les adresses géocodées,', 'batch_expl3': 'les
+adresses non trouvées,', 'batch_expl4': 'des suggestions de
+correction.', 'sstitre_result': 'Résultats', 'sstitre_legend': 'Légende
+des couleurs', 'legend1': 'Meilleure correspondance', 'legend2':
+'Moyenne', 'legend3': 'Correspondance faible', 'legend4': 'Les
+coordonnées des points sont disponibles en cliquant sur les globes.',
+'outro1': 'BhiGIS a été développé par une équipe de ', 'outro2':
+"l'IGEAT", 'outro3': " à l'Université Libre de Bruxelles. Plus
+d'informations sur le projet ici: ", 'download_btn': '3. Télécharger le
+fichier ZIP', 'file_help': 'Vous pouvez charger un fichier Excel (.xlsx)
+ou LibreOffice (.ods) ou CSV UTF-8 ; séparateur ;', 'error1': 'Aucun
+fichier fourni', 'error2': 'Aucun fichier envoyé', 'error3': 'Aucun
+fichier fourni', 'error4': 'Format non supporté (xlsx, csv ou ods
+attendu)', 'error5': 'Erreur lecture fichier: '}, 'nl': {'title':
+'Welkom bij BhiGIS', 'intro': 'Het historische geolokalisatie-instrument
+in Brussel', 'simple_search': '⇦ Terug naar eenvoudige zoekopdracht',
+'index_title': 'Puntlocatie van historische adressen in Brussel',
+'batch_title': 'Welkom bij BhiGIS (batchverwerking)', 'file_struct':
+'Voorbeeld van een bestandsstructuur :', 'tbl_rue': 'straat', 'tbl_num':
+'nummer', 'tbl_muni': 'gemeente', 'tbl_ann': 'jaar', 'tbl_other':
+'commentaar', 'tbl_ex1': 'Koningsstraat', 'tbl_ex2': 'Brussel',
+'tbl_ex3': 'bakkerij', 'tbl_ex4': 'Sint-Gillis', 'tbl_ex5': 'Schilders-
+kunstenaars', 'tbl_ex6': 'Naaiwerk', 'rue_default': 'Straat...',
+'nr_default': 'Nummer...', 'communes': ['Anderlecht', 'Brussel',
+'Elsene', 'Etterbeek', 'Evere', 'Ganshoren', 'Haren', 'Jette',
+'Koekelberg', 'Laken', 'Neder-Over-Heembeek', 'Oudergem', 'Schaarbeek',
+'Sint-Agatha-Berchem', 'Sint-Gillis', 'Sint-Jans-Molenbeek', 'Sint-
+Joost-Ten-Node', 'Sint-Lambrechts-Woluwe', 'Sint-Pieters-Woluwe',
+'Ukkel', 'Vorst', 'Watermaal-Bosvoorde'], 'choose_commune': '(Kies een
+gemeente)', 'choose_year': 'Jaar (ex: 1905)', 'search_btn': 'Zoeken',
+'best_result': 'Best', 'copy_coord': 'Contactgegevens kopiëren',
+'unknown_address': '(onbekend adres)', 'epoch_label': 'Periode',
+'similarity_lb': 'Overeenkomst in naam', 'similarity_na': 'Overeenkomst
+niet beschikbaar', 'dist_to_commune': 'Verwijdering naar de gewenste
+gemeente', 'copy_tooltip': 'Contactgegevens kopiëren', 'file_error':
+'Fout bij het lezen van het bestand :', 'processing_error': 'Fout
+tijdens batchverwerking :', 'success_msg': 'De gegevens zijn correct
+verwerkt.', 'go_batch_btn': '📂 Of ga naar batch-lokalisatie -->',
+'intro_batch': 'U kunt een <strong>Excel (.xlsx)</strong> of
+<strong>LibreOffice (.ods)</strong> of een <strong>CSV UTF-8</strong>
+bestand met scheidingsteken <code>‘;’</code> uploaden. <br><br>De
+adressen mogen zowel in het Frans als in het Nederlands worden vermeld.
+De verwachte structuur is: een unieke identificatiecode, de straatnaam,
+het huisnummer, de gemeente, het jaar en een vrij veld (opmerking). De
+velden ‘id’, ‘straatnaam’ en ‘gemeente’ moeten verplicht iets bevatten.
+Het veld ‘jaar’ wordt sterk aanbevolen. Het huisnummer zal
+waarschijnlijk niet worden gebruikt voor zeer oude periodes (< 1850).
+\tDe namen van de gemeenten moeten standaard zijn in het Frans of
+Nederlands (postcodes worden ook geaccepteerd) en overeenkomen met de
+gezochte periode.', 'intro_t1': 'Met de applicatie ‘BhiGIS’ (Brussels
+History Geographical Information System) kunnen adressen in Brussel
+worden gelokaliseerd op basis van historische gegevens, vanaf het einde
+van de 18e eeuw (1777) tot vandaag.', 'intro_t2': 'Aangezien straten in
+de loop der tijd zowel hun naam en tracé kunnen hebben behouden als
+volledig kunnen zijn veranderd, of bepaalde namen meerdere keren in
+verschillende delen van Brussel kunnen zijn gebruikt, worden er meestal
+meerdere resultaten voorgesteld (ook in andere gemeenten) op basis van
+een gelijkenis in naam en een relatieve tijds- en ruimtelijke nabijheid.
+Deze worden gerangschikt op basis van geschatte relevantie, met de beste
+bovenaan.', 'intro_t3': 'De gekleurde stippen geven een indicatie van de
+relevantie: groen voor de meest relevante resultaten, rood voor de minst
+relevante resultaten, of dit nu te wijten is aan een mismatch tussen de
+namen of de periode.', 'intro_t4': 'Ten slotte zijn voor oude adressen
+de exacte posities van de huisnummers in de straat meestal niet bekend,
+maar indien mogelijk berekenen we een positie tussen het minimum- en
+maximumhuisnummer van het gevonden straatsegment, anders plaatsen we het
+punt in het midden van de straat.', 'step1': '1. Selecteer uw bestand:',
+'step2': '2. Download uw resultaten:', 'batch_expl1': 'Het
+resultatenbestand bevat 3 tabellen :', 'batch_expl2': 'geocodeerde
+adressen,', 'batch_expl3': 'de niet-gevonden adressen,', 'batch_expl4':
+'correctiesuggesties.', 'sstitre_result': 'Resultaten',
+'sstitre_legend': 'Legenda kleuren', 'legend1': 'Beste overeenkomst',
+'legend2': 'Gemiddeld', 'legend3': 'Slechte overeenkomst', 'legend4':
+'De coördinaten van de punten zijn beschikbaar door op de globes te
+klikken.', 'outro1': 'BhiGIS is ontwikkeld door een team van ',
+'outro2': 'IGEAT', 'outro3': ' aan de Vrije Universiteit Brussel. Meer
+informatie over het project vindt u hier: ', 'download_btn': '3.
+Download het ZIP-bestand', 'file_help': 'U kunt een Excel-bestand
+(.xlsx) of LibreOffice (.ods) of CSV UTF-8 ; scheidingsteken ;
+uploaden', 'error1': 'Geen bestand opgegeven', 'error2': 'Geen bestand
+geselecteerd', 'error3': 'Geen bestand opgegeven'}}
+<#translations>
+
+def get_db_connection(tunnel):
+View Source
+
+<#get_db_connection>
+
+202 <#get_db_connection-202>def get_db_connection(tunnel):
+203 <#get_db_connection-203>    return psycopg2.connect(
+204 <#get_db_connection-204>        dbname=os.getenv("DB_NAME"),
+205 <#get_db_connection-205>        user=os.getenv("DB_USER"),
+206 <#get_db_connection-206>        password=os.getenv("DB_PASSWORD"),
+207 <#get_db_connection-207>        host="127.0.0.1",
+208 <#get_db_connection-208>        port=tunnel.local_bind_port
+209 <#get_db_connection-209>    )
+
+@app.route('/')
+def index():
+View Source
+
+<#index>
+
+214 <#index-214>@app.route("/")
+215 <#index-215>def index():
+216 <#index-216>    lang = request.args.get("lang", "fr")
+217 <#index-217>    if lang not in translations:
+218 <#index-218>        lang = "fr"
+219 <#index-219>    return render_template("index.html", t=translations[lang], lang=lang)
+
+@app.route('/autocomplete')
+def autocomplete():
+View Source
+
+<#autocomplete>
+
+224 <#autocomplete-224>@app.route("/autocomplete")
+225 <#autocomplete-225>def autocomplete():
+226 <#autocomplete-226>    query = request.args.get("q", "")
+227 <#autocomplete-227>    results = []
+228 <#autocomplete-228>
+229 <#autocomplete-229>    if query:
+230 <#autocomplete-230>        conn = get_db_connection()
+231 <#autocomplete-231>        cur = conn.cursor()
+232 <#autocomplete-232>        cur.execute(
+233 <#autocomplete-233>            "SELECT address FROM couches.adresses WHERE address ILIKE %s LIMIT 10",
+234 <#autocomplete-234>            (f"%{query}%",),
+235 <#autocomplete-235>        )
+236 <#autocomplete-236>        results = [row[0] for row in cur.fetchall()]
+237 <#autocomplete-237>        cur.close()
+238 <#autocomplete-238>        conn.close()
+239 <#autocomplete-239>
+240 <#autocomplete-240>    return jsonify(results)
+
+def increment_geocode_counter():
+View Source
+
+<#increment_geocode_counter>
+
+245 <#increment_geocode_counter-245>def increment_geocode_counter():
+246 <#increment_geocode_counter-246>    count_file = "geocode_counter.txt"      ### à remplacer par /opt/bhigis/geocode_counter.txt !!!
+247 <#increment_geocode_counter-247>    count = 0
+248 <#increment_geocode_counter-248>
+249 <#increment_geocode_counter-249>    if os.path.exists(count_file):
+250 <#increment_geocode_counter-250>        with open(count_file, "r") as f:
+251 <#increment_geocode_counter-251>            try:
+252 <#increment_geocode_counter-252>                count = int(f.read())
+253 <#increment_geocode_counter-253>            except ValueError:
+254 <#increment_geocode_counter-254>                count = 0
+255 <#increment_geocode_counter-255>
+256 <#increment_geocode_counter-256>    count += 1
+257 <#increment_geocode_counter-257>    with open(count_file, "w") as f:
+258 <#increment_geocode_counter-258>        f.write(str(count))
+
+@app.route('/geocode')
+def geocode():
+View Source
+
+<#geocode>
+
+263 <#geocode-263>@app.route("/geocode")
+264 <#geocode-264>def geocode():
+265 <#geocode-265>    address = request.args.get("address", "")
+266 <#geocode-266>    numero = request.args.get("numero", None)
+267 <#geocode-267>    annee = request.args.get("annee", None)
+268 <#geocode-268>    commune = request.args.get("commune", "").strip()
+269 <#geocode-269>    results = []
+270 <#geocode-270>
+271 <#geocode-271>    if address:
+272 <#geocode-272>        increment_geocode_counter()
+273 <#geocode-273>        with get_ssh_tunnel() as tunnel:
+274 <#geocode-274>            tunnel.start()
+275 <#geocode-275>            conn = get_db_connection(tunnel)
+276 <#geocode-276>            conn.autocommit = True
+277 <#geocode-277>            cur = conn.cursor()
+278 <#geocode-278>
+279 <#geocode-279>            try:
+280 <#geocode-280>                numero_int = int(numero) if numero else None
+281 <#geocode-281>            except ValueError:
+282 <#geocode-282>                numero_int = None
+283 <#geocode-283>
+284 <#geocode-284>            try:
+285 <#geocode-285>                annee_int = int(annee) if annee else None
+286 <#geocode-286>            except ValueError:
+287 <#geocode-287>                annee_int = None
+288 <#geocode-288>
+289 <#geocode-289>            # 1. Vider la table
+290 <#geocode-290>            cur.execute("TRUNCATE bhigis_webuser.new_geo_loc")
+291 <#geocode-291>
+292 <#geocode-292>            # 2. Insérer les données utilisateur
+293 <#geocode-293>            cur.execute(
+294 <#geocode-294>                """
+295 <#geocode-295>                INSERT INTO bhigis_webuser.new_geo_loc (nom_rue, numero, annee, commune)
+296 <#geocode-296>                VALUES (%s, %s, %s, %s)
+297 <#geocode-297>                """,
+298 <#geocode-298>                (address, numero_int, annee_int, commune),
+299 <#geocode-299>            )
+300 <#geocode-300>
+301 <#geocode-301>            # 3. Appeler la fonction de traitement
+302 <#geocode-302>            cur.execute("SELECT data.run_webuser()")
+303 <#geocode-303>
+304 <#geocode-304>            # 4. Lire les résultats
+305 <#geocode-305>            cur.execute(
+306 <#geocode-306>                """
+307 <#geocode-307>                SELECT DISTINCT
+308 <#geocode-308>                    ST_Y(ST_Transform(ST_Centroid(geom), 4326)) AS lat,
+309 <#geocode-309>                    ST_X(ST_Transform(ST_Centroid(geom), 4326)) AS lon,
+310 <#geocode-310>                    found_street AS rue,
+311 <#geocode-311>                    commune_loc AS commune,
+312 <#geocode-312>                    annee_ref AS epoque,
+313 <#geocode-313>                    ROUND(simila::numeric, 2)::numeric simila,
+314 <#geocode-314>                    ROUND((dist_muni/1000)::numeric, 2) dist_muni,
+315 <#geocode-315>                    best_answer,
+316 <#geocode-316>                    main_name,
+317 <#geocode-317>                    CASE WHEN %s ILIKE commune THEN 1 ELSE 0 END AS commune_match,
+318 <#geocode-318>                    simsignif,
+319 <#geocode-319>                    simsignif+simila sim
+320 <#geocode-320>                FROM bhigis_webuser.adress_collect_pt
+321 <#geocode-321>                WHERE simila > 0.35 OR simsignif > 0.5
+322 <#geocode-322>                ORDER BY best_answer ASC, sim DESC, commune_match, dist_muni
+323 <#geocode-323>                LIMIT 10
+324 <#geocode-324>                """,
+325 <#geocode-325>                (commune,),
+326 <#geocode-326>            )
+327 <#geocode-327>
+328 <#geocode-328>            rows = cur.fetchall()
+329 <#geocode-329>            for row in rows:
+330 <#geocode-330>                results.append(
+331 <#geocode-331>                    {
+332 <#geocode-332>                        "lat": row[0],
+333 <#geocode-333>                        "lon": row[1],
+334 <#geocode-334>                        "adresse": row[2],
+335 <#geocode-335>                        "commune": row[3],
+336 <#geocode-336>                        "époque": row[4],
+337 <#geocode-337>                        "simila": row[5],
+338 <#geocode-338>                        "dist_muni": row[6],
+339 <#geocode-339>                        "best_answer": row[7],
+340 <#geocode-340>                        "main_name": row[8],
+341 <#geocode-341>                        "commune_match": row[9],
+342 <#geocode-342>                    }
+343 <#geocode-343>                )
+344 <#geocode-344>
+345 <#geocode-345>            cur.close()
+346 <#geocode-346>            conn.close()
+347 <#geocode-347>
+348 <#geocode-348>    return jsonify(results)
+
+@app.route('/batch')
+def batch_page():
+View Source
+
+<#batch_page>
+
+354 <#batch_page-354>@app.route("/batch")
+355 <#batch_page-355>def batch_page():
+356 <#batch_page-356>    lang = request.args.get("lang", "fr")
+357 <#batch_page-357>    if lang not in translations:
+358 <#batch_page-358>        lang = "fr"
+359 <#batch_page-359>    return render_template("batch.html", t=translations[lang], lang=lang)
+
+def generate_results_zip(	base_filename,	gdf1,	df2,	df3,	style1='style_bhigis.qml',	style2='style_non_trouvés.qml'):
+View Source
+
+<#generate_results_zip>
+
+365 <#generate_results_zip-365>def generate_results_zip(base_filename, gdf1, df2, df3,
+366 <#generate_results_zip-366>                         style1="style_bhigis.qml", style2="style_non_trouvés.qml"):
+367 <#generate_results_zip-367>    # Générer un timestamp (ex: 20250916_114532)
+368 <#generate_results_zip-368>    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+369 <#generate_results_zip-369>
+370 <#generate_results_zip-370>    # Nom unique du GeoPackage
+371 <#generate_results_zip-371>    gpkg_filename = f"{base_filename}_{timestamp}_bhigis.gpkg"
+372 <#generate_results_zip-372>
+373 <#generate_results_zip-373>    # Couche principale
+374 <#generate_results_zip-374>    gdf1.to_file(gpkg_filename, driver="GPKG", layer="resultats")
+375 <#generate_results_zip-375>
+376 <#generate_results_zip-376>    # Tables secondaires
+377 <#generate_results_zip-377>    conn = sqlite3.connect(gpkg_filename)
+378 <#generate_results_zip-378>    df2.to_sql("données_non_trouvées", conn, if_exists="replace", index=False)
+379 <#generate_results_zip-379>    df3.to_sql("suggestions", conn, if_exists="replace", index=False)
+380 <#generate_results_zip-380>    conn.close()
+381 <#generate_results_zip-381>
+382 <#generate_results_zip-382>    # Nom unique de l’archive ZIP
+383 <#generate_results_zip-383>    zip_filename = f"{base_filename}_{timestamp}_bhigis.zip"
+384 <#generate_results_zip-384>    with zipfile.ZipFile(zip_filename, "w") as zf:
+385 <#generate_results_zip-385>        zf.write(gpkg_filename, os.path.basename(gpkg_filename))
+386 <#generate_results_zip-386>        if os.path.exists(style1):
+387 <#generate_results_zip-387>            zf.write(style1, os.path.basename(style1))
+388 <#generate_results_zip-388>        if os.path.exists(style2):
+389 <#generate_results_zip-389>            zf.write(style2, os.path.basename(style2))
+390 <#generate_results_zip-390>
+391 <#generate_results_zip-391>    return zip_filename
+
+@app.route('/analyze_file', methods=['POST'])
+def analyze_file():
+View Source
+
+<#analyze_file>
+
+397 <#analyze_file-397>@app.route("/analyze_file", methods=["POST"])
+398 <#analyze_file-398>def analyze_file():
+399 <#analyze_file-399>    """
+400 <#analyze_file-400>    Analyse le fichier uploadé :
+401 <#analyze_file-401>    - Lit les colonnes du fichier (csv ou xlsx)
+402 <#analyze_file-402>    - Récupère les colonnes attendues dans la table PostgreSQL
+403 <#analyze_file-403>    - Retourne les deux listes en JSON
+404 <#analyze_file-404>    """
+405 <#analyze_file-405>    file = request.files.get("file")
+406 <#analyze_file-406>    if not file:
+407 <#analyze_file-407>        return jsonify({"error": {{ t.error1 }}}), 400
+408 <#analyze_file-408>
+409 <#analyze_file-409>    filename = file.filename
+410 <#analyze_file-410>    base_filename, ext = os.path.splitext(filename)
+411 <#analyze_file-411>
+412 <#analyze_file-412>    # Lire fichier
+413 <#analyze_file-413>    try:
+414 <#analyze_file-414>        if ext.lower() == ".xlsx":
+415 <#analyze_file-415>            df = pd.read_excel(file)
+416 <#analyze_file-416>        elif ext.lower() == ".csv":
+417 <#analyze_file-417>            df = pd.read_csv(file, sep=";")
+418 <#analyze_file-418>        elif ext.lower() == ".ods":
+419 <#analyze_file-419>            df = pd.read_excel(file, engine="odf")
+420 <#analyze_file-420>        else:
+421 <#analyze_file-421>            return jsonify({"error": {{ t.error4 }}}), 400
+422 <#analyze_file-422>    except Exception as e:
+423 <#analyze_file-423>        return jsonify({"error": t[lang]["error5"] + {str(e)}}), 500
+424 <#analyze_file-424>
+425 <#analyze_file-425>    file_columns = df.columns.astype(str).tolist()
+426 <#analyze_file-426>
+427 <#analyze_file-427>    # Colonnes de la table cible PostgreSQL
+428 <#analyze_file-428>    try:
+429 <#analyze_file-429>        with get_ssh_tunnel() as tunnel:
+430 <#analyze_file-430>            tunnel.start()
+431 <#analyze_file-431>            conn = get_db_connection(tunnel)
+432 <#analyze_file-432>            cur = conn.cursor()
+433 <#analyze_file-433>            cur.execute("""
+434 <#analyze_file-434>                SELECT column_name
+435 <#analyze_file-435>                FROM information_schema.columns
+436 <#analyze_file-436>                WHERE table_schema = 'bhigis_webuser'
+437 <#analyze_file-437>                AND table_name = 'new_geo_loc'
+438 <#analyze_file-438>                ORDER BY ordinal_position;
+439 <#analyze_file-439>            """)
+440 <#analyze_file-440>            db_columns = [row[0] for row in cur.fetchall()]
+441 <#analyze_file-441>            cur.close()
+442 <#analyze_file-442>            conn.close()
+443 <#analyze_file-443>    except Exception as e:
+444 <#analyze_file-444>        return jsonify({"error": f"Erreur lecture colonnes DB: {str(e)}"}), 500
+445 <#analyze_file-445>
+446 <#analyze_file-446>    return jsonify({
+447 <#analyze_file-447>        "file_columns": file_columns,
+448 <#analyze_file-448>        "db_columns": db_columns
+449 <#analyze_file-449>    })
+
+Analyse le fichier uploadé :
+
+  * Lit les colonnes du fichier (csv ou xlsx)
+  * Récupère les colonnes attendues dans la table PostgreSQL
+  * Retourne les deux listes en JSON
+
+@app.route('/batch_geocode', methods=['POST'])
+def batch_geocode():
+View Source
+
+<#batch_geocode>
+
+455 <#batch_geocode-455>@app.route("/batch_geocode", methods=["POST"])
+456 <#batch_geocode-456>def batch_geocode():
+457 <#batch_geocode-457>    file = request.files.get("file")
+458 <#batch_geocode-458>    mapping_json = request.form.get("mapping")
+459 <#batch_geocode-459>
+460 <#batch_geocode-460>    if not file:
+461 <#batch_geocode-461>        return {{ t.error2 }}, 400
+462 <#batch_geocode-462>    if not mapping_json:
+463 <#batch_geocode-463>        return {{ t.error3 }}, 400
+464 <#batch_geocode-464>
+465 <#batch_geocode-465>    try:
+466 <#batch_geocode-466>        mapping = json.loads(mapping_json)
+467 <#batch_geocode-467>    except Exception as e:
+468 <#batch_geocode-468>        return f"Erreur de parsing du mapping : {e}", 400
+469 <#batch_geocode-469>
+470 <#batch_geocode-470>    filename = file.filename
+471 <#batch_geocode-471>    base_filename, ext = os.path.splitext(filename)
+472 <#batch_geocode-472>
+473 <#batch_geocode-473>    # Lecture du fichier
+474 <#batch_geocode-474>    # Lecture du fichier
+475 <#batch_geocode-475>    if ext.lower() == ".xlsx":
+476 <#batch_geocode-476>        df_input = pd.read_excel(file)
+477 <#batch_geocode-477>    elif ext.lower() == ".csv":
+478 <#batch_geocode-478>        df_input = pd.read_csv(file, sep=";")
+479 <#batch_geocode-479>    elif ext.lower() == ".ods":
+480 <#batch_geocode-480>        df_input = pd.read_excel(file, engine="odf")
+481 <#batch_geocode-481>    else:
+482 <#batch_geocode-482>        return "Format non supporté (xlsx, csv ou ods uniquement)", 400
+483 <#batch_geocode-483>
+484 <#batch_geocode-484>    # Vérifie que les colonnes demandées existent dans le fichier
+485 <#batch_geocode-485>    missing_cols = [col for col in mapping.values() if col not in df_input.columns]
+486 <#batch_geocode-486>    if missing_cols:
+487 <#batch_geocode-487>        return f"Colonnes manquantes dans le fichier : {missing_cols}", 400
+488 <#batch_geocode-488>
+489 <#batch_geocode-489>    # Renommer les colonnes selon le mapping
+490 <#batch_geocode-490>    df_input = df_input.rename(columns={v: k for k, v in mapping.items()})
+491 <#batch_geocode-491>
+492 <#batch_geocode-492>    try:
+493 <#batch_geocode-493>        with get_ssh_tunnel() as tunnel:
+494 <#batch_geocode-494>            tunnel.start()
+495 <#batch_geocode-495>            conn = get_db_connection(tunnel)
+496 <#batch_geocode-496>            conn.autocommit = True
+497 <#batch_geocode-497>            cur = conn.cursor()
+498 <#batch_geocode-498>
+499 <#batch_geocode-499>            # 1. Créer un schéma de travail
+500 <#batch_geocode-500>            cur.execute("SELECT data.prepar_schema()")
+501 <#batch_geocode-501>            schema_name = cur.fetchone()[0]
+502 <#batch_geocode-502>            table_name = "new_geo_loc"
+503 <#batch_geocode-503>
+504 <#batch_geocode-504>            # 2. Récupérer les colonnes attendues dans la table cible
+505 <#batch_geocode-505>            cur.execute("""
+506 <#batch_geocode-506>                SELECT column_name
+507 <#batch_geocode-507>                FROM information_schema.columns
+508 <#batch_geocode-508>                WHERE table_schema = %s AND table_name = %s
+509 <#batch_geocode-509>                ORDER BY ordinal_position
+510 <#batch_geocode-510>            """, (schema_name, table_name))
+511 <#batch_geocode-511>            table_columns = [row[0] for row in cur.fetchall()]
+512 <#batch_geocode-512>
+513 <#batch_geocode-513>            # 3. Charger les données via COPY
+514 <#batch_geocode-514>            csv_buffer = io.StringIO()
+515 <#batch_geocode-515>            df_input.to_csv(csv_buffer, index=False, header=False, sep="\t")
+516 <#batch_geocode-516>            csv_buffer.seek(0)
+517 <#batch_geocode-517>
+518 <#batch_geocode-518>            copy_sql = f"""
+519 <#batch_geocode-519>                COPY {schema_name}.{table_name} ({', '.join(table_columns)})
+520 <#batch_geocode-520>                FROM STDIN WITH (FORMAT csv, DELIMITER E'\\t')
+521 <#batch_geocode-521>            """
+522 <#batch_geocode-522>            cur.copy_expert(copy_sql, csv_buffer)
+523 <#batch_geocode-523>
+524 <#batch_geocode-524>            # 4. Exécuter les fonctions de traitement avec le schema_name
+525 <#batch_geocode-525>            functions_to_execute = [
+526 <#batch_geocode-526>                f"SELECT data.find_street('{schema_name}')",
+527 <#batch_geocode-527>                f"SELECT data.find_nb('{schema_name}')",
+528 <#batch_geocode-528>                f"SELECT data.find_errors('{schema_name}')"
+529 <#batch_geocode-529>            ]
+530 <#batch_geocode-530>            for query in functions_to_execute:
+531 <#batch_geocode-531>                cur.execute(query)
+532 <#batch_geocode-532>
+533 <#batch_geocode-533>            # 5. Lire les résultats dans ce schéma
+534 <#batch_geocode-534>            engine = create_engine(
+535 <#batch_geocode-535>                f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+536 <#batch_geocode-536>                f"@127.0.0.1:{tunnel.local_bind_port}/{os.getenv('DB_NAME')}"
+537 <#batch_geocode-537>            )
+538 <#batch_geocode-538>            gdf1 = gpd.read_postgis(f"SELECT * FROM {schema_name}.adress_geoloc_pt", engine, geom_col="geom")
+539 <#batch_geocode-539>            df2 = pd.read_sql(f"SELECT * FROM {schema_name}.missing", engine)
+540 <#batch_geocode-540>            df3 = pd.read_sql(f"SELECT * FROM {schema_name}.online_suggest", engine)
+541 <#batch_geocode-541>
+542 <#batch_geocode-542>            # 6. Générer le ZIP
+543 <#batch_geocode-543>            zip_path = generate_results_zip(base_filename, gdf1, df2, df3)
+544 <#batch_geocode-544>
+545 <#batch_geocode-545>            # 7. Nettoyer : supprimer le schéma temporaire
+546 <#batch_geocode-546>            cur.execute(f"DROP SCHEMA {schema_name} CASCADE")
+547 <#batch_geocode-547>
+548 <#batch_geocode-548>            cur.close()
+549 <#batch_geocode-549>            conn.close()
+550 <#batch_geocode-550>
+551 <#batch_geocode-551>        return send_file(zip_path, as_attachment=True, download_name=os.path.basename(zip_path))
+552 <#batch_geocode-552>
+553 <#batch_geocode-553>    except Exception as e:
+554 <#batch_geocode-554>        return f"Erreur lors du traitement batch : {str(e)}", 500
+

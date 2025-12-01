@@ -1,0 +1,126 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Localisation d'adresse</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #map { height: 500px; margin-top: 20px; }
+        .search-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 30px;
+            margin-bottom: 20px;
+        }
+        .search-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            max-width: 1000px;
+        }
+        .search-form input,
+        .search-form select,
+        .search-form button {
+            padding: 8px;
+            font-size: 16px;
+        }
+        #intro {
+			max-width: 1280px;
+			margin-left: calc((100% - 1300px) / 2 + 20px); /* aligné avec la liste */
+			text-align: justify;
+			padding: 10px;
+        }
+        #legend {
+            max-width: 800px;
+            margin: 10px auto 40px auto;
+            font-size: 14px;
+        }
+        #results-container {
+            max-width: 800px;
+            margin: 30px auto;
+			margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="search-container">
+        <h2>Localisation d'adresses historiques à Bruxelles</h2>
+        <div class="search-form">
+            <input type="text" id="street" placeholder="Rue..." autocomplete="off">
+            <input type="number" id="number" placeholder="Numéro...">
+            <select id="commune">
+                <option value="">(Choisissez une commune)</option>
+                <option value="Anderlecht">Anderlecht</option>
+                <option value="Auderghem">Auderghem</option>
+                <option value="Berchem-Sainte-Agathe">Berchem-Sainte-Agathe</option>
+                <option value="Bruxelles">Bruxelles</option>
+                <option value="Etterbeek">Etterbeek</option>
+                <option value="Evere">Evere</option>
+                <option value="Forest">Forest</option>
+                <option value="Ganshoren">Ganshoren</option>
+                <option value="Ixelles">Ixelles</option>
+                <option value="Jette">Jette</option>
+                <option value="Koekelberg">Koekelberg</option>
+                <option value="Molenbeek-Saint-Jean">Molenbeek-Saint-Jean</option>
+                <option value="Saint-Gilles">Saint-Gilles</option>
+                <option value="Saint-Josse-ten-Noode">Saint-Josse-ten-Noode</option>
+                <option value="Schaerbeek">Schaerbeek</option>
+                <option value="Uccle">Uccle</option>
+                <option value="Watermael-Boitsfort">Watermael-Boitsfort</option>
+                <option value="Woluwe-Saint-Lambert">Woluwe-Saint-Lambert</option>
+                <option value="Woluwe-Saint-Pierre">Woluwe-Saint-Pierre</option>
+            </select>
+            <input type="number" id="year" placeholder="Année (ex: 1905)">
+            <button id="search-btn">Rechercher</button>
+            <span id="feedback-message" style="margin-left: 10px; font-weight: bold;"></span>
+        </div>
+    </div>
+
+    <div id="intro">
+        <p>L'application 'BhiGIS' (Brussels History Geographical Information System) permet de localiser des adresses à Bruxelles en fonction de données historiques, depuis la fin du 18ème siècle jusqu'à aujourd'hui.</p>
+        <p>Comme les rues peuvent aussi bien avoir conservé leur nom et leur tracé au fil du temps, ou avoir complètement changé, ou que certains noms ont pu être utilisés à de multiples reprises dans des parties différentes de Bruxelles, plusieurs résultats sont généralement proposés. Ceux-ci sont classés par ordre de pertinence estimée, le meilleur étant en tête.</p>
+        <p>Les pastilles colorées donnent une idée de la pertinence : vert pour les plus proches, rouge pour les moins bonnes correspondances, que ce soit dû à une inadéquation des noms ou de l'époque.</p>
+        <p>Enfin, pour les adresses anciennes les positions exactes des n° dans la rue ne sont généralement pas connues, mais nous donnons si possible les n° minimum et maximum du segment de rue trouvé, ou alors nous plaçons le point au milieu de la rue.</p>
+    </div>
+
+    <div id="results-area" style="display: none;">
+		<div style="display: flex; gap: 20px; align-items: flex-start; margin: 20px auto; max-width: 1300px;">
+		    <div id="results-container" style="width: 400px;">
+		        <h3>Résultats</h3>
+		        <ul id="results-list" style="list-style: none; padding: 0;"></ul>
+		    </div>
+
+		    <div>
+		        <div id="map" style="width: 800px; height: 800px;"></div>
+		        <div id="legend" style="margin-top: 15px;">
+		            <strong>Légende des couleurs</strong>
+		            <div style="display: flex; gap: 20px; margin-top: 5px;">
+		                <div style="display: flex; align-items: center;">
+		                    <div style="width: 16px; height: 16px; background-color: rgb(76,175,80); border: 1px solid #333; border-radius: 50%; margin-right: 5px;"></div>
+		                    Meilleure correspondance
+		                </div>
+		                <div style="display: flex; align-items: center;">
+		                    <div style="width: 16px; height: 16px; background-color: rgb(225,200,0); border: 1px solid #333; border-radius: 50%; margin-right: 5px;"></div>
+		                    Moyenne
+		                </div>
+		                <div style="display: flex; align-items: center;">
+		                    <div style="width: 16px; height: 16px; background-color: rgb(255,0,0); border: 1px solid #333; border-radius: 50%; margin-right: 5px;"></div>
+		                    Correspondance faible
+		                </div>
+		            </div>
+		        </div>
+		    </div>
+		</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

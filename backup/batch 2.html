@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>BhiGIS - Géocodage en lot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 900px; margin: auto; }
+        h2, h3 { color: #333; }
+        table { border-collapse: collapse; margin: 15px auto; }
+        table, th, td { border: 1px solid #666; padding: 5px; text-align: center; }
+        th { background: rebeccapurple; color: white; }
+        #status { margin-top: 15px; font-weight: bold; }
+        #download-section { display: none; margin-top: 20px; text-align: center; }
+        #download-btn {
+            background-color: rebeccapurple;
+            color: white;
+            padding: 10px 20px;
+            font-weight: bold;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+        }
+        #download-btn:hover { background-color: indigo; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="{{ url_for('index') }}">⇦ Retour à la recherche simple</a>
+    </nav>
+<div class="container">
+    <h2>Bienvenue dans BhiGIS (traitement par lots)</h2>
+    <p>
+        Vous pouvez charger un fichier <strong>Excel (.xlsx)</strong> (recommandé) ou un fichier
+        <strong>CSV UTF-8</strong> avec séparateur <code>;</code>. <br>
+        <br>Les adresses peuvent indifféremment être libellées en français ou en néerlandais.
+		La structure attendue est : un identifiant unique, le nom de rue, le numéro, la commune, l’année,
+        et éventuellement un champ libre (commentaire).
+    </p>
+
+    <h3>Exemple de structure de fichier :</h3>
+    <table>
+        <tr>
+            <th>id</th>
+            <th>nom_rue</th>
+            <th>numero</th>
+            <th>commune</th>
+            <th>annee</th>
+            <th>commentaire</th>
+        </tr>
+        <tr>
+            <td>1</td>
+            <td>Rue Royale</td>
+            <td>25</td>
+            <td>Bruxelles</td>
+            <td>1920</td>
+            <td>boulangerie</td>
+        </tr>
+    </table>
+
+    <h3>1. Sélectionnez votre fichier :</h3>
+    <form id="upload-form" enctype="multipart/form-data">
+        <input type="file" id="file-input" name="file" accept=".xlsx,.csv" required>
+        <button type="submit">Soumettre</button>
+    </form>
+
+    <div id="status"></div>
+
+    <div id="download-section">
+        <h3>2. Téléchargez vos résultats :</h3>
+        <a id="download-link">
+            <button id="download-btn">Télécharger le fichier ZIP</button>
+        </a>
+    </div>
+
+    <p style="margin-top: 30px; font-size: 14px;">
+        Le fichier de résultats contient 3 tables :
+        <ul>
+            <li>les adresses géocodées,</li>
+            <li>les adresses non trouvées,</li>
+            <li>des suggestions de correction.</li>
+        </ul>
+    </p>
+</div>
+
+<div id="mapping-area" style="margin-top:20px;">
+    <!-- Les dropdowns seront ajoutés ici par JS -->
+</div>
+
+<script src="{{ url_for('static', filename='batch.js') }}"></script>
+
+
+</body>
+</html>

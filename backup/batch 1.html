@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>BhiGIS – Géocodage par lots</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>BhiGIS – Géocodage par lots</h1>
+        <nav>
+            <a href="{{ url_for('index') }}">⇦ Retour à la recherche simple</a>
+        </nav>
+    </header>
+
+    <main>
+        <section style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px;">
+            <p>Ici vous pouvez soumettre un lot d'adresses à partir d'un fichier. Vous obtiendrez ensuite un fichier de type 'Geopackage' contenant à la fois les résultats trouvés et les adresses non élucidées mais accompagnées d'une série de suggestions.  Le fichier est conçu pour être ouvert dans un logiciel de cartographie tel que <a href="https://qgis.org/" target="_blank" >QGIS</a>, qui est ici recommandé pour bénéficier d'une information détaillée quant à la qualité de chaque point trouvé.</p>
+			<h2>Importer un fichier</h2>
+            <form action="{{ url_for('batch_geocode') }}" method="post" enctype="multipart/form-data">
+                <label for="file">Choisissez un fichier (.xlsx ou .csv) :</label><br><br>
+                <input type="file" id="file" name="file" accept=".xlsx,.csv" required><br><br>
+                <button type="submit">🚀 Lancer le traitement</button>
+            </form>
+            <p style="margin-top:15px;font-size:0.9em;color:#555;">
+                Le traitement génère un fichier GeoPackage (.gpkg) compressé en ZIP, 
+                contenant les résultats et les suggestions, directement téléchargeable.
+            </p>
+        </section>
+    </main>
+</body>
+</html>
