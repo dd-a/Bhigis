@@ -1,1 +1,1 @@
-# Bhigis
+# Nom du projet
